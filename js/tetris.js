@@ -17,6 +17,18 @@ const REPEAT_BUTTONS = {
   down: { delay: 260, interval: 120, action: 'stepBlockDown' }
 }
 
+// 控制按钮布局参数（单位：baseSize）。棋盘与按钮的几何关系在这里统一定义，
+// start() 的方块尺寸夹取和 layoutButtons() 的定位共用同一组常量
+const CONTROL_LAYOUT = {
+  boardGap: 0.3, // 棋盘下边缘与第一排按钮
+  rowGap: 0.28, // 第一排与第二排按钮之间
+  bottomPadding: 0.5 // 按钮区到底部的留白
+}
+
+// 棋盘在画布中的行偏移（matrix.render 里 translate 的第 5 行）
+const BOARD_TOP_ROWS = 5
+const BOARD_ROWS = 20
+
 // 与 res/icon 灰色图标(#666666)协作的中性浅色主题
 const THEME = {
   backgroundTop: '#F4F6F9',
@@ -35,12 +47,12 @@ const THEME = {
 
 // 控制按钮的图标文件（键名即 this.icons 的键，新增图标只改这里）
 const ICON_SOURCES = {
-  left: 'res/icon/direction-left.svg',
-  right: 'res/icon/direction-right.svg',
-  down: 'res/icon/direction-down.svg',
-  rotate: 'res/icon/forward.svg',
-  pause: 'res/icon/timeout.svg',
-  play: 'res/icon/play-circle.svg'
+  left: 'res/icon/direction-left.png',
+  right: 'res/icon/direction-right.png',
+  down: 'res/icon/direction-down.png',
+  rotate: 'res/icon/forward.png',
+  pause: 'res/icon/timeout.png',
+  play: 'res/icon/play-circle.png'
 }
 
 export class TetrisGame {
@@ -98,8 +110,16 @@ export class TetrisGame {
     this.canvas.height = this.logicalHeight * this.pixelRatio
     this.ctx.scale(this.pixelRatio, this.pixelRatio)
 
-    // 方块大小：逻辑宽度 / 17（棋盘 10 列 + 留出右侧分数区）
-    this.blockSize = this.logicalWidth / 17
+    // 自适应基础尺寸（按钮尺寸的基准）
+    this.baseSize = Math.min(this.logicalWidth / 10, this.logicalHeight / 14)
+
+    // 方块大小：逻辑宽度 / 17（棋盘 10 列 + 留出右侧分数区）。
+    // 再按高度夹取一次，保证「棋盘 + 底部两排按钮」整体放得下（宽屏/矮屏）
+    const reservedHeight = this.baseSize * (
+      CONTROL_LAYOUT.boardGap + CONTROL_LAYOUT.rowGap + CONTROL_LAYOUT.bottomPadding + 2
+    )
+    const maxBlockByHeight = (this.logicalHeight - reservedHeight) / (BOARD_TOP_ROWS + BOARD_ROWS)
+    this.blockSize = Math.min(this.logicalWidth / 17, maxBlockByHeight)
 
     // 初始化棋盘和方块
     this.matrix = new Matrix(this.blockSize)
@@ -107,8 +127,7 @@ export class TetrisGame {
     this.createNewBlock()
     this.loadGameState()
 
-    // 自适应基础尺寸 + 一次性创建按钮（不再每帧重建）
-    this.baseSize = Math.min(this.logicalWidth / 10, this.logicalHeight / 14)
+    // 一次性创建按钮（不再每帧重建）
     this.icons = {}
     for (const key of Object.keys(ICON_SOURCES)) {
       this.icons[key] = loadIcon(ICON_SOURCES[key])
@@ -206,7 +225,6 @@ export class TetrisGame {
     const buttonWidth = baseSize * 2
     const buttonHeight = baseSize
     const horizontalSpacing = baseSize
-    const verticalSpacing = baseSize * 0.8
 
     // "重新开始"按钮 - 左上角
     this.buttonManager.addButton(
@@ -247,12 +265,23 @@ export class TetrisGame {
       controlOptions(this.isPaused ? 'play' : 'pause')
     )
 
-    // 控制按钮区域
-    const bottomPadding = baseSize * 0.5
+    // 控制按钮区域：以棋盘下边缘为锚点，缩短中间空白（屏幕变高时不再被推到底部）
+    const bottomPadding = baseSize * CONTROL_LAYOUT.bottomPadding
     const controlAreaWidth = buttonWidth * 2 + horizontalSpacing
     const controlStartX = (this.logicalWidth - controlAreaWidth) / 2
-    const firstRowY = this.logicalHeight - bottomPadding - buttonHeight * 1.5 - verticalSpacing
-    const secondRowY = this.logicalHeight - bottomPadding - buttonHeight
+
+    // 棋盘定位与 matrix.render 保持一致：translate(blockSize, blockSize * 5)
+    const boardBottom = this.blockSize * (BOARD_TOP_ROWS + BOARD_ROWS)
+
+    // 紧贴棋盘但不压住它；同时保证两排按钮不超出屏幕底部
+    const boardGap = baseSize * CONTROL_LAYOUT.boardGap
+    const rowGap = baseSize * CONTROL_LAYOUT.rowGap
+    const maxFirstRowY = this.logicalHeight - bottomPadding - buttonHeight * 2 - rowGap
+    const firstRowY = Math.max(
+      Math.min(boardBottom + boardGap, maxFirstRowY),
+      boardBottom + baseSize * 0.12
+    )
+    const secondRowY = firstRowY + buttonHeight + rowGap
 
     // 左移按钮（第一排左）
     this.buttonManager.addButton('left', controlStartX - buttonWidth, firstRowY, buttonWidth, buttonHeight, '左移', controlOptions('left', 'left'))
