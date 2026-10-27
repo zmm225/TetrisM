@@ -5,6 +5,7 @@ import { Block } from './block.js'
 import { Matrix } from './matrix.js'
 import { Button, ButtonManager } from './comon.js'
 import { audioManager } from './audio.js'
+import { loadIcon } from './assets.js'
 
 // 单帧最大步进时间：切后台/掉帧后避免一次落下多格
 const MAX_FRAME_MS = 100
@@ -14,6 +15,32 @@ const REPEAT_BUTTONS = {
   left: { delay: 180, interval: 90, action: 'moveBlockLeft' },
   right: { delay: 180, interval: 90, action: 'moveBlockRight' },
   down: { delay: 260, interval: 120, action: 'stepBlockDown' }
+}
+
+// 与 res/icon 灰色图标(#666666)协作的中性浅色主题
+const THEME = {
+  backgroundTop: '#F4F6F9',
+  backgroundBottom: '#D9E1E8',
+  surface: '#FFFFFF',
+  surfaceEnd: '#E4EAF0',
+  iconColor: '#5B6672',
+  textPrimary: '#39434D',
+  textMuted: '#6B7681',
+  textValue: '#C2410C',
+  accent: '#F59E0B',
+  accentEnd: '#E08700',
+  danger: '#E5484D',
+  dangerEnd: '#C4272C'
+}
+
+// 控制按钮的图标文件（键名即 this.icons 的键，新增图标只改这里）
+const ICON_SOURCES = {
+  left: 'res/icon/direction-left.svg',
+  right: 'res/icon/direction-right.svg',
+  down: 'res/icon/direction-down.svg',
+  rotate: 'res/icon/forward.svg',
+  pause: 'res/icon/timeout.svg',
+  play: 'res/icon/play-circle.svg'
 }
 
 export class TetrisGame {
@@ -50,6 +77,9 @@ export class TetrisGame {
     this.repeatFired = false
     this.repeatTouchId = null
 
+    // 图标资源（异步加载，就绪后下一帧自动生效）
+    this.icons = {}
+
     // 按钮管理器
     this.buttonManager = new ButtonManager()
   }
@@ -79,6 +109,10 @@ export class TetrisGame {
 
     // 自适应基础尺寸 + 一次性创建按钮（不再每帧重建）
     this.baseSize = Math.min(this.logicalWidth / 10, this.logicalHeight / 14)
+    this.icons = {}
+    for (const key of Object.keys(ICON_SOURCES)) {
+      this.icons[key] = loadIcon(ICON_SOURCES[key])
+    }
     this.layoutButtons()
 
     // 注册触摸事件
@@ -159,6 +193,9 @@ export class TetrisGame {
 
     // 绘制分数和等级（含"下一个"方块）
     this.renderScore()
+
+    // 暂停遮罩最后画，保证覆盖棋盘
+    this.drawPauseOverlay()
   }
 
   // 一次性创建/布局所有按钮（尺寸变化时再调用）
@@ -180,11 +217,24 @@ export class TetrisGame {
       buttonHeight,
       '重开',
       {
-        backgroundColor: 'rgba(190, 243, 187, 0)',
-        textColor: '#bdc3c7',
-        fontSize: Math.floor(baseSize * 0.45)
+        backgroundColor: 'rgba(255, 255, 255, 0.72)',
+        hoverColor: 'rgba(255, 255, 255, 0.72)',
+        textColor: THEME.textPrimary,
+        shadowBlur: 0,
+        fontSize: Math.floor(baseSize * 0.4)
       }
     )
+    // 带图标的控制按钮统一样式；fallback 为图标不可用时绘制的箭头方向
+    const controlOptions = (iconKey, fallback = null) => ({
+      backgroundColor: THEME.surface,
+      hoverColor: THEME.surfaceEnd,
+      textColor: THEME.textPrimary,
+      icon: this.icons[iconKey],
+      iconFallback: fallback,
+      iconColor: THEME.iconColor,
+      fontSize: Math.floor(baseSize * 0.45),
+      shadowBlur: 0
+    })
 
     // 暂停按钮 - 重开按钮右侧
     this.buttonManager.addButton(
@@ -194,12 +244,7 @@ export class TetrisGame {
       buttonWidth,
       buttonHeight,
       this.isPaused ? '继续' : '暂停',
-      {
-        backgroundColor: 'rgba(255, 165, 0, 0.8)',
-        hoverColor: 'rgba(255, 140, 0, 0.8)',
-        textColor: '#FFFFFF',
-        fontSize: Math.floor(baseSize * 0.45)
-      }
+      controlOptions(this.isPaused ? 'play' : 'pause')
     )
 
     // 控制按钮区域
@@ -210,21 +255,13 @@ export class TetrisGame {
     const secondRowY = this.logicalHeight - bottomPadding - buttonHeight
 
     // 左移按钮（第一排左）
-    this.buttonManager.addButton('left', controlStartX - buttonWidth, firstRowY, buttonWidth, buttonHeight, '左移', {
-      backgroundColor: 'rgba(255, 255, 0, 0.8)', textColor: 'rgb(0,0,0)', fontSize: Math.floor(baseSize * 0.45)
-    })
+    this.buttonManager.addButton('left', controlStartX - buttonWidth, firstRowY, buttonWidth, buttonHeight, '左移', controlOptions('left', 'left'))
     // 右移按钮（第一排右）
-    this.buttonManager.addButton('right', controlStartX + buttonWidth, firstRowY, buttonWidth, buttonHeight, '右移', {
-      backgroundColor: 'rgba(255, 255, 0, 0.8)', textColor: 'rgb(0,0,0)', fontSize: Math.floor(baseSize * 0.45)
-    })
+    this.buttonManager.addButton('right', controlStartX + buttonWidth, firstRowY, buttonWidth, buttonHeight, '右移', controlOptions('right', 'right'))
     // 下移按钮（第二排左）
-    this.buttonManager.addButton('down', controlStartX, secondRowY, buttonWidth, buttonHeight, '下移', {
-      backgroundColor: 'rgba(255, 255, 0, 0.8)', textColor: 'rgb(246, 255, 0)', fontSize: Math.floor(baseSize * 0.45)
-    })
-    // 旋转按钮（第二排右）
-    this.buttonManager.addButton('rotate', controlStartX + buttonWidth * 2 + horizontalSpacing, secondRowY - buttonHeight, buttonWidth, buttonHeight * 1.5, '旋转', {
-      backgroundColor: 'rgb(255, 0, 0)', textColor: 'rgb(0,0,0)', fontSize: Math.floor(baseSize * 0.45)
-    })
+    this.buttonManager.addButton('down', controlStartX, secondRowY, buttonWidth, buttonHeight, '下移', controlOptions('down', 'down'))
+    // 旋转按钮（第二排右）：图标不可用时退回「旋转」文字，不要画成左右箭头
+    this.buttonManager.addButton('rotate', controlStartX + buttonWidth * 2 + horizontalSpacing, secondRowY - buttonHeight, buttonWidth, buttonHeight * 1.5, '旋转', controlOptions('rotate'))
 
     this.syncPauseButton()
   }
@@ -232,43 +269,50 @@ export class TetrisGame {
   drawBackground() {
     const ctx = this.ctx
 
-    ctx.fillStyle = 'rgb(44, 93, 93)'
+    // 中性浅色渐变：与灰色图标、灰色棋盘统一色系
+    const gradient = ctx.createLinearGradient(0, 0, 0, this.logicalHeight)
+    gradient.addColorStop(0, THEME.backgroundTop)
+    gradient.addColorStop(1, THEME.backgroundBottom)
+    ctx.fillStyle = gradient
     ctx.fillRect(0, 0, this.logicalWidth, this.logicalHeight)
 
     // 绘制所有按钮
     this.buttonManager.drawAll(ctx)
+  }
 
-    // 暂停时绘制遮罩
-    if (this.isPaused) {
-      ctx.save()
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
-      ctx.fillRect(0, 0, this.logicalWidth, this.logicalHeight)
-      const pauseTextSize = this.baseSize * 0.8
-      ctx.font = `bold ${pauseTextSize}px Arial`
-      ctx.fillStyle = '#FFFFFF'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText('游戏暂停', this.logicalWidth / 2, this.logicalHeight / 2)
-      ctx.restore()
-    }
+  // 暂停遮罩：必须画在棋盘之上，否则会被棋盘挡住
+  drawPauseOverlay() {
+    if (!this.isPaused) return
+
+    const ctx = this.ctx
+    ctx.save()
+    ctx.fillStyle = 'rgba(31, 41, 51, 0.55)'
+    ctx.fillRect(0, 0, this.logicalWidth, this.logicalHeight)
+    const pauseTextSize = this.baseSize * 0.8
+    ctx.font = `bold ${pauseTextSize}px Arial`
+    ctx.fillStyle = '#FFFFFF'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('游戏暂停', this.logicalWidth / 2, this.logicalHeight / 2)
+    ctx.restore()
   }
 
   renderScore() {
     const ctx = this.ctx
     ctx.save()
-    ctx.fillStyle = '#000'
     ctx.font = '20px Arial'
     const X = this.logicalWidth - this.blockSize * 5
     const Y = this.blockSize * 4
+    ctx.fillStyle = THEME.textPrimary
     ctx.fillText('分数：', X, Y + this.blockSize * 2)
-    ctx.fillStyle = '#F87'
+    ctx.fillStyle = THEME.textValue
     ctx.fillText(this.score, X, Y + this.blockSize * 4)
-    ctx.fillStyle = '#000'
+    ctx.fillStyle = THEME.textPrimary
     ctx.fillText('等级：' + this.level, X, Y + this.blockSize * 6)
     ctx.fillText('最高分：', X, Y + this.blockSize * 8)
-    ctx.fillStyle = '#F87'
+    ctx.fillStyle = THEME.textValue
     ctx.fillText(this.maxScore, X, Y + this.blockSize * 10)
-    ctx.fillStyle = '#000'
+    ctx.fillStyle = THEME.textPrimary
     ctx.fillText('下一个：', X, Y + this.blockSize * 12)
     this.renderNextBlock(X, Y + this.blockSize * 14)
     ctx.restore()
@@ -407,9 +451,11 @@ export class TetrisGame {
 
   syncPauseButton() {
     const button = this.buttonManager.getButton('pause')
-    if (button) {
-      button.text = this.isPaused ? '继续' : '暂停'
-    }
+    if (!button) return
+
+    // 暂停按钮同时有文字与图标，两者都要跟着状态切换
+    button.text = this.isPaused ? '继续' : '暂停'
+    button.options.icon = this.icons[this.isPaused ? 'play' : 'pause']
   }
 
   // ============ 触摸事件 ============

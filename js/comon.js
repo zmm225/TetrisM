@@ -16,6 +16,35 @@ export function drawRoundRect(ctx, x, y, width, height, radius) {
   ctx.closePath()
 }
 
+// 矢量箭头：图标文件不可用时兜底，保证按钮不会空白。
+// 仅支持四个方向；未知方向返回 false，让调用方改用文字，避免画成误导性的箭头
+const ARROW_ANGLES = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 }
+
+export function drawArrowIcon(ctx, direction, centerX, centerY, size, color = '#666666') {
+  if (!(direction in ARROW_ANGLES)) return false
+
+  const half = size / 2
+  const head = size * 0.34
+
+  ctx.save()
+  ctx.translate(centerX, centerY)
+  ctx.rotate(ARROW_ANGLES[direction])
+  ctx.strokeStyle = color
+  ctx.lineWidth = Math.max(1.5, size * 0.14)
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.beginPath()
+  ctx.moveTo(-half, 0)
+  ctx.lineTo(half - head * 0.5, 0)
+  ctx.moveTo(half - head, -head)
+  ctx.lineTo(half, 0)
+  ctx.lineTo(half - head, head)
+  ctx.stroke()
+  ctx.restore()
+
+  return true
+}
+
 // 按钮类
 export class Button {
   constructor(id, x, y, width, height, text, options = {}) {
@@ -31,11 +60,52 @@ export class Button {
       textColor: options.textColor || '#FFFFFF',
       fontSize: options.fontSize || 24,
       borderRadius: options.borderRadius || 10,
-      shadowBlur: options.shadowBlur || 10,
+      shadowBlur: options.shadowBlur === undefined ? 10 : options.shadowBlur,
       shadowColor: options.shadowColor || '#000000',
       isCircle: options.isCircle || false,
-      onClick: options.onClick || null
+      onClick: options.onClick || null,
+      // 图标：{ image, ready } 由 assets.js 的 loadIcon 返回；
+      // iconFallback 为图标加载失败时绘制的矢量方向
+      icon: options.icon || null,
+      iconFallback: options.iconFallback || null,
+      iconRatio: options.iconRatio || 0.52,
+      iconColor: options.iconColor || '#666666'
     }
+  }
+
+  // 图标已就绪就画图片，否则退回矢量箭头，最后才用文字
+  drawContent(ctx) {
+    const { icon, iconFallback, iconRatio, iconColor } = this.options
+    const centerX = this.x + this.width / 2
+    const centerY = this.y + this.height / 2
+
+    if (icon && icon.ready && icon.image && icon.image.width > 0) {
+      const box = Math.min(this.width, this.height) * iconRatio
+      const scale = Math.min(box / icon.image.width, box / icon.image.height)
+      const drawWidth = icon.image.width * scale
+      const drawHeight = icon.image.height * scale
+      ctx.drawImage(
+        icon.image,
+        centerX - drawWidth / 2,
+        centerY - drawHeight / 2,
+        drawWidth,
+        drawHeight
+      )
+      return
+    }
+
+    if (iconFallback) {
+      const drawn = drawArrowIcon(ctx, iconFallback, centerX, centerY, Math.min(this.width, this.height) * iconRatio, iconColor)
+      if (drawn) return
+    }
+
+    ctx.font = `bold ${this.options.fontSize}px Arial`
+    ctx.fillStyle = this.options.textColor
+    ctx.shadowColor = this.options.shadowColor
+    ctx.shadowBlur = this.options.shadowBlur
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(this.text, centerX, centerY)
   }
 
   draw(ctx) {
@@ -65,14 +135,8 @@ export class Button {
       ctx.fill()
     }
 
-    // 绘制文字
-    ctx.font = `bold ${this.options.fontSize}px Arial`
-    ctx.fillStyle = this.options.textColor
-    ctx.shadowColor = this.options.shadowColor
-    ctx.shadowBlur = this.options.shadowBlur
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(this.text, this.x + this.width / 2, this.y + this.height / 2)
+    // 绘制内容（图标 / 兜底箭头 / 文字）
+    this.drawContent(ctx)
 
     ctx.restore()
   }
